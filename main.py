@@ -19,6 +19,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 SKIP_FRAMES = int(os.environ.get("SKIP_FRAMES", 5))
+CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.25))
 app = FastAPI()
 STREAM_DIR = "/tmp/stream"
 shutil.rmtree(STREAM_DIR, ignore_errors=True)
@@ -112,7 +113,11 @@ def run_inference(video, index, assigned_cores, stop_event):
             img_det = detector.preprocess(pil_frame)
             det_out = detector.predict("", img_det)
             detections = det_out["detections"]
-            bboxes = [BBox(*det["bbox"]) for det in detections]
+            bboxes = [
+                BBox(*det["bbox"])
+                for det in detections
+                if det["conf"] > CONFIDENCE_THRESHOLD
+            ]
             classifier_frames = []
             for bbox in bboxes:
                 classifier_frames.append(classifier.preprocess(pil_frame, [bbox]))
@@ -140,6 +145,8 @@ def run_inference(video, index, assigned_cores, stop_event):
         frame_count += 1
         draw = PIL.ImageDraw.Draw(pil_frame)
         for bbox, classification in zip(bboxes, classes):
+            if classification == "blank":
+                continue
             draw.rectangle(bbox)
             draw.text(
                 bbox[:2],
