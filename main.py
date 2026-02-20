@@ -1,16 +1,12 @@
 import multiprocessing
-import uuid
-import psutil
 import os
 import cv2
-import queue
 import types
 from speciesnet.classifier import SpeciesNetClassifier
 import torch
-import time
 import numpy as np
 from speciesnet.detector import SpeciesNetDetector
-from speciesnet.utils import BBox, load_rgb_image
+from speciesnet.utils import BBox
 import PIL
 import subprocess
 import shutil
@@ -29,7 +25,7 @@ os.makedirs(STREAM_DIR, exist_ok=True)
 def run_inference(video, index, assigned_cores, stop_event):
     pid = os.getpid()
     try:
-        psutil.Process(pid).cpu_affinity(assigned_cores)
+        # psutil.Process(pid).cpu_affinity(assigned_cores)
         print(f"Process {pid} pinned to cores: {assigned_cores}")
     except Exception as e:
         print(f"Failed to assign cores to process {pid}")
@@ -64,15 +60,17 @@ def run_inference(video, index, assigned_cores, stop_event):
     print(f"Process {pid} - {video}")
     cap = cv2.VideoCapture(video)
     fps = int(cap.get(cv2.CAP_PROP_FPS))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) // 2
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
+    #    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) // 2
+    #    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
+    width = 1920 // 2
+    height = 1080 // 2
     previous_predictions = None
     frame_count = 0
 
     os.makedirs(f"{STREAM_DIR}/{index}", exist_ok=True)
     m3u8_path = f"{STREAM_DIR}/{index}/stream.m3u8"
     ffmpeg_cmd = [
-        "ffmpeg",
+        "./ffmpeg/ffmpeg",
         "-y",
         "-f",
         "rawvideo",
@@ -84,18 +82,30 @@ def run_inference(video, index, assigned_cores, stop_event):
         f"{fps}",
         "-i",
         "pipe:0",
+        "-i",
+        video,
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:a",
+        "copy",
+        "-pix_fmt",
+        "yuv420p",
         "-c:v",
-        "libx264",
+        "libx265",
         "-preset",
         "ultrafast",
         "-tune",
         "zerolatency",
+        "-threads",
+        "16",
         "-f",
         "hls",
         "-hls_time",
         "1",
         "-hls_list_size",
-        "5",
+        "2",
         "-hls_flags",
         "delete_segments+append_list+independent_segments",
         m3u8_path,
@@ -108,6 +118,7 @@ def run_inference(video, index, assigned_cores, stop_event):
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             continue
         print(f"Process {pid} - {'full' if frame_count % SKIP_FRAMES == 0 else 'skip'}")
+        frame = cv2.resize(frame, (width, height))
         pil_frame = PIL.Image.fromarray(frame)
         if frame_count % SKIP_FRAMES == 0 or previous_predictions is None:
             img_det = detector.preprocess(pil_frame)
@@ -147,14 +158,14 @@ def run_inference(video, index, assigned_cores, stop_event):
         for bbox, classification in zip(bboxes, classes):
             if classification == "blank":
                 continue
-            draw.rectangle(bbox)
+            draw.rectangle(bbox, width=10)
             draw.text(
                 bbox[:2],
                 classification,
-                font_size=24,
+                font_size=72,
                 fill="white",
                 stroke_fill="black",
-                stroke_width=2,
+                stroke_width=10,
                 anchor="lb",
             )
         previous_predictions = (bboxes, classes)
@@ -168,10 +179,10 @@ def run_inference(video, index, assigned_cores, stop_event):
 def start(videos):
     stop_event = multiprocessing.Event()
     processes = []
-    cores_per_process = 128 // len(videos)
+    cores_per_process = multiprocessing.cpu_count() // len(videos)
     for i, v in enumerate(videos):
         start_core = i * cores_per_process
-        assigned_cores = list(range(start_core, start_core + cores_per_process - 1))
+        assigned_cores = list(range(start_core, start_core + cores_per_process))
         p = multiprocessing.Process(
             target=run_inference,
             args=(v, i, assigned_cores, stop_event),
@@ -184,9 +195,9 @@ def start(videos):
 
 available_files = [
     ("Bears", "bearid-demo-raw.mp4"),
-    ("Clips", "usfq-demo-clips.mp4"),
-    ("Pandas", "pandas.mkv"),
-    ("Red Pandas", "redpandas.mp4"),
+    # ("Clips", "usfq-demo-clips.mp4"),
+    # ("Pandas", "pandas.mkv"),
+    # ("Red Pandas", "redpandas.mp4"),
 ]
 
 
@@ -201,6 +212,12 @@ def index():
     """
             for i in range(len(available_files))
         ]
+    )
+
+    grids = {1: ("1fr", "1fr"), 2: ("1fr 1fr", "1fr"), 4: ("1fr 1fr", "1fr 1fr")}
+    grid_style = grids[len(available_files)]
+    grid_template = (
+        f"grid-template-columns: {grid_style[0]}; grid-template-rows: {grid_style[1]};"
     )
 
     scripts = "\n".join(
@@ -228,7 +245,7 @@ def index():
 
     return f"""
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height:100vh; gap:10px; padding:10px; box-sizing: border-box">
+    <div style="display:grid; {grid_template} height:100vh; gap:10px; padding:10px; box-sizing: border-box">
             {players}
     </div>
     <script>{scripts}</script>
