@@ -1,5 +1,7 @@
+import hashlib
 import multiprocessing
 import os
+import time
 import cv2
 import types
 from speciesnet.classifier import SpeciesNetClassifier
@@ -16,6 +18,21 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 SKIP_FRAMES = int(os.environ.get("SKIP_FRAMES", 5))
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.25))
+
+# BGR
+COLORS = (
+    (95, 122, 224),
+    (139, 188, 61),
+    (237, 120, 118),
+    (134, 204, 242),
+    (229, 93, 155),
+    (154, 178, 129),
+    (97, 162, 244),
+    (128, 90, 61),
+    (170, 132, 242),
+    (138, 177, 163),
+)
+
 app = FastAPI()
 STREAM_DIR = "/tmp/stream"
 shutil.rmtree(STREAM_DIR, ignore_errors=True)
@@ -33,8 +50,13 @@ def run_inference(video, index, assigned_cores, stop_event):
     os.environ["AIO_NUMA_CPUS"] = " ".join((str(c) for c in assigned_cores))
     torch.set_num_threads(len(assigned_cores))
 
-    detector = SpeciesNetDetector("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
-    classifier = SpeciesNetClassifier("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
+    # detector = SpeciesNetDetector("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
+    # classifier = SpeciesNetClassifier("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
+    detector = SpeciesNetDetector("classifier")
+    detector.IMG_SIZE = 640
+    print(detector.model_info)
+    print(detector.IMG_SIZE)
+    classifier = SpeciesNetClassifier("classifier")
     detector.model = torch.compile(
         detector.model,
         backend="aio",
@@ -93,7 +115,7 @@ def run_inference(video, index, assigned_cores, stop_event):
         "-pix_fmt",
         "yuv420p",
         "-c:v",
-        "libx265",
+        "libx264",
         "-preset",
         "ultrafast",
         "-tune",
@@ -105,7 +127,7 @@ def run_inference(video, index, assigned_cores, stop_event):
         "-hls_time",
         "1",
         "-hls_list_size",
-        "2",
+        "5",
         "-hls_flags",
         "delete_segments+append_list+independent_segments",
         m3u8_path,
@@ -117,7 +139,7 @@ def run_inference(video, index, assigned_cores, stop_event):
             # Loop to the start if the video is finished
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             continue
-        print(f"Process {pid} - {'full' if frame_count % SKIP_FRAMES == 0 else 'skip'}")
+        # print(f"Process {pid} - {'full' if frame_count % SKIP_FRAMES == 0 else 'skip'}")
         frame = cv2.resize(frame, (width, height))
         pil_frame = PIL.Image.fromarray(frame)
         if frame_count % SKIP_FRAMES == 0 or previous_predictions is None:
@@ -127,7 +149,7 @@ def run_inference(video, index, assigned_cores, stop_event):
             bboxes = [
                 BBox(*det["bbox"])
                 for det in detections
-                if det["conf"] > CONFIDENCE_THRESHOLD
+                if det["conf"] > CONFIDENCE_THRESHOLD and det["label"] == "animal"
             ]
             classifier_frames = []
             for bbox in bboxes:
@@ -137,41 +159,50 @@ def run_inference(video, index, assigned_cores, stop_event):
                 classifier_frames,
             )
             classes = []
+            scores = []
             for classifier_out in classifier_outs:
                 classes.append(
                     classifier_out["classifications"]["classes"][0].split(";")[-1]
                 )
+                scores.append(classifier_out["classifications"]["scores"][0])
 
             bboxes = [
                 [
-                    bbox.xmin * frame.shape[1],
-                    bbox.ymin * frame.shape[0],
-                    (bbox.xmin + bbox.width) * frame.shape[1],
-                    (bbox.ymin + bbox.height) * frame.shape[0],
+                    bbox.xmin * width,
+                    bbox.ymin * height,
+                    (bbox.xmin + bbox.width) * width,
+                    (bbox.ymin + bbox.height) * height,
                 ]
                 for bbox in bboxes
             ]
         else:
-            bboxes, classes = previous_predictions
+            bboxes, classes, scores = previous_predictions
         frame_count += 1
-        draw = PIL.ImageDraw.Draw(pil_frame)
-        for bbox, classification in zip(bboxes, classes):
+        for bbox, classification, score in zip(bboxes, classes, scores):
             if classification == "blank":
                 continue
-            draw.rectangle(bbox, width=10)
-            draw.text(
-                bbox[:2],
-                classification,
-                font_size=72,
-                fill="white",
-                stroke_fill="black",
-                stroke_width=10,
-                anchor="lb",
+            color = COLORS[
+                int(hashlib.md5(classification.encode("utf-8")).hexdigest(), 16)
+                % len(COLORS)
+            ]
+            cv2.rectangle(
+                frame,
+                (int(bbox[0]), int(bbox[1])),
+                (int(bbox[2]), int(bbox[3])),
+                color,
+                5,
             )
-        previous_predictions = (bboxes, classes)
-        frame = np.asarray(pil_frame)
-        resized_frame = cv2.resize(frame, (width, height))
-        process.stdin.write(resized_frame.tobytes())
+            cv2.putText(
+                frame,
+                classification + " " + f"{score:.2f}",
+                (int(bbox[0]), int(bbox[1]) - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (255, 255, 255),
+                2,
+            )
+        previous_predictions = (bboxes, classes, scores)
+        process.stdin.write(frame.tobytes())
     cap.release()
     process.stdin.close()
 
@@ -194,10 +225,11 @@ def start(videos):
 
 
 available_files = [
-    ("Bears", "bearid-demo-raw.mp4"),
-    # ("Clips", "usfq-demo-clips.mp4"),
-    # ("Pandas", "pandas.mkv"),
-    # ("Red Pandas", "redpandas.mp4"),
+    # ("Bears", "bearid-demo-raw.mp4"),
+    ("Bears2", "bears30fps.mp4"),
+    ("Clips", "usfq-demo-clips.mp4"),
+    ("Pandas", "pandas.mkv"),
+    ("Red Pandas", "redpandas.mp4"),
 ]
 
 
