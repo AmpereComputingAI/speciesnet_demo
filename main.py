@@ -90,7 +90,7 @@ def run_inference(video, index, assigned_cores, stop_event):
     os.makedirs(f"{STREAM_DIR}/{index}", exist_ok=True)
     m3u8_path = f"{STREAM_DIR}/{index}/stream.m3u8"
     ffmpeg_cmd = [
-        "./ffmpeg/ffmpeg",
+        "ffmpeg",
         "-y",
         "-f",
         "rawvideo",
