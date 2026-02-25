@@ -7,7 +7,7 @@ AIO_IMPLICIT_FP16_TRANSFORM_FILTER=".*" SKIP_FRAMES=15 uvicorn main:app  --host 
 # Docker
 Run with
 ```bash
-docker run ghcr.io/amperecomputingai/speciesnet_demo:1.1
+docker run -p 8000:8000 ghcr.io/amperecomputingai/speciesnet_demo:1.1
 ```
 
 By default it will start the demo using port 8000 and run inference every 9th frame.
