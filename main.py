@@ -26,11 +26,9 @@ COLORS = (
     (237, 120, 118),
     (134, 204, 242),
     (229, 93, 155),
-    (154, 178, 129),
     (97, 162, 244),
     (128, 90, 61),
     (170, 132, 242),
-    (138, 177, 163),
 )
 
 app = FastAPI()
@@ -192,14 +190,27 @@ def run_inference(video, index, assigned_cores, stop_event):
                 color,
                 5,
             )
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1
+            font_thickness = 2
+            (text_width, text_height), baseline = cv2.getTextSize(
+                classification, font, font_scale, font_thickness
+            )
+            cv2.rectangle(
+                frame,
+                (int(bbox[0]), int(bbox[1]) - 10 - text_height),
+                (int(bbox[0] + text_width), int(bbox[1])),
+                color,
+                cv2.FILLED,
+            )
             cv2.putText(
                 frame,
-                classification + " " + f"{score:.2f}",
+                classification,
                 (int(bbox[0]), int(bbox[1]) - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
+                font,
+                font_scale,
                 (255, 255, 255),
-                2,
+                font_thickness,
             )
         previous_predictions = (bboxes, classes, scores)
         process.stdin.write(frame.tobytes())
@@ -225,11 +236,10 @@ def start(videos):
 
 
 available_files = [
-    # ("Bears", "bearid-demo-raw.mp4"),
-    ("Bears2", "bears30fps.mp4"),
+    ("Bears", "bears30fps.mp4"),
     ("Clips", "usfq-demo-clips.mp4"),
-    ("Pandas", "pandas.mkv"),
-    ("Red Pandas", "redpandas.mp4"),
+    ("Giraffes", "giraffes30fps.mp4"),
+    ("Leopard", "leopard.mp4"),
 ]
 
 
