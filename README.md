@@ -16,3 +16,6 @@ You can adjust these values if you want.
 ```bash
 docker run -p 4321:8000 -e SKIP_FRAMES=11 ghcr.io/amperecomputingai/speciesnet_demo:1.1
 ```
+
+# Displaying the results
+To see the results, open a web browser and go to `<your-ip>:<port>`, for example `localhost:8000`.
