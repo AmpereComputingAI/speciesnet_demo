@@ -12,6 +12,7 @@ from speciesnet.utils import BBox
 import PIL
 import subprocess
 import shutil
+import pathlib
 
 from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse, HTMLResponse
@@ -235,12 +236,7 @@ def start(videos):
         p.start()
 
 
-available_files = [
-    ("Bears", "bears30fps.mp4"),
-    ("Clips", "usfq-demo-clips.mp4"),
-    ("Giraffes", "giraffes30fps.mp4"),
-    ("Leopard", "leopard.mp4"),
-]
+available_files = [str(v) for v in pathlib.Path("./videos").glob("*.mp4")]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -304,5 +300,4 @@ def serve_stream(index: int, filename: str):
 
 @app.on_event("startup")
 def startup():
-    videos = [v[1] for v in available_files]
-    start(videos)
+    start(available_files)

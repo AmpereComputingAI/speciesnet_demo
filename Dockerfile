@@ -60,6 +60,7 @@ RUN jq '.detector = "md_v1000.0.0-spruce.pt"' info.json > tmp.json && mv tmp.jso
 WORKDIR /workspace
 
 COPY main.py .
-COPY bears30fps.mp4 giraffes30fps.mp4 leopard.mp4 usfq-demo-clips.mp4 .
+RUN mkdir videos
+COPY videos/ videos/
 
 ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0"]
