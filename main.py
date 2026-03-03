@@ -237,6 +237,10 @@ def start(videos):
 
 
 available_files = [str(v) for v in pathlib.Path("./videos").glob("*.mp4")]
+if len(available_files) >= 4:
+    available_files = available_files[:4]
+elif len(available_files) == 3:
+    available_files = available_files[:2]
 
 
 @app.get("/", response_class=HTMLResponse)
