@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 SKIP_FRAMES = int(os.environ.get("SKIP_FRAMES", 5))
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.25))
+FFMPEG_CORES = int(os.environ.get("FFMPEG_CORES", 8))
 
 # BGR
 COLORS = (
@@ -46,8 +47,10 @@ def run_inference(video, index, assigned_cores, stop_event):
     except Exception as e:
         print(f"Failed to assign cores to process {pid}")
 
-    os.environ["AIO_NUMA_CPUS"] = " ".join((str(c) for c in assigned_cores))
-    torch.set_num_threads(len(assigned_cores))
+    os.environ["AIO_NUMA_CPUS"] = " ".join(
+        (str(c) for c in assigned_cores[:-FFMPEG_CORES])
+    )
+    torch.set_num_threads(len(assigned_cores[:-FFMPEG_CORES]))
 
     # detector = SpeciesNetDetector("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
     # classifier = SpeciesNetClassifier("kaggle:google/speciesnet/pyTorch/v4.0.2a/1")
@@ -83,14 +86,18 @@ def run_inference(video, index, assigned_cores, stop_event):
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     #    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) // 2
     #    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
-    width = 1920 // 2
-    height = 1080 // 2
+    width = 1920
+    height = 1080
     previous_predictions = None
     frame_count = 0
 
     os.makedirs(f"{STREAM_DIR}/{index}", exist_ok=True)
     m3u8_path = f"{STREAM_DIR}/{index}/stream.m3u8"
+    ffmpeg_cores = ",".join(str(c) for c in assigned_cores[-FFMPEG_CORES:])
     ffmpeg_cmd = [
+        "numactl",
+        "-C",
+        ffmpeg_cores,
         "ffmpeg",
         "-y",
         "-f",
@@ -103,14 +110,6 @@ def run_inference(video, index, assigned_cores, stop_event):
         f"{fps}",
         "-i",
         "pipe:0",
-        # "-i",
-        # video,
-        # "-map",
-        # "0:v",
-        # "-map",
-        # "1:a",
-        # "-c:a",
-        # "copy",
         "-pix_fmt",
         "yuv420p",
         "-c:v",
@@ -119,8 +118,10 @@ def run_inference(video, index, assigned_cores, stop_event):
         "ultrafast",
         "-tune",
         "zerolatency",
+        "-crf",
+        "32",
         "-threads",
-        "16",
+        f"{FFMPEG_CORES}",
         "-f",
         "hls",
         "-hls_time",
